@@ -212,11 +212,14 @@ input:not([type=checkbox]):focus{border-color:var(--acc);background:var(--card);
 input:not([type=checkbox]):focus::placeholder{opacity:.3}
 .sx{cursor:pointer;user-select:none}
 .gd{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:10px}
-.gc{display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;padding:5px 0;font-size:12px;background:var(--track);color:var(--mute);min-height:30px}
+.gc{display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;padding:5px 0;font-size:12px;background:var(--track);color:var(--mute);min-height:30px;user-select:none;-webkit-user-select:none}
 .gc small{font-size:9px;line-height:1.2}
 .gc.gx-d{background:#16a34a;color:#fff}
 .gc.gx-m{background:rgba(221,51,51,.15);color:#d33}
 .gc.gx-u{opacity:.35}
+.gc.clickable{cursor:pointer;transition:transform .15s cubic-bezier(.2,.8,.3,1),filter .15s ease,box-shadow .15s ease;-webkit-tap-highlight-color:transparent}
+.gc.clickable:hover{filter:brightness(1.18);box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.gc.clickable:active{transform:scale(.88)}
 .xp{animation:paneIn .38s ease-out}
 .cf{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:200}
 .cf i{position:absolute;top:-16px;width:8px;height:14px;border-radius:2px;opacity:0;animation:cfall var(--t) cubic-bezier(.3,.6,.5,1) var(--dl) forwards}
@@ -948,12 +951,57 @@ function sStart(p){
 let openS={};
 function tgS(k){openS[k]=!openS[k];renderS()}
 const chv=o=>'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;color:var(--mute);'+(o?'transform:rotate(180deg)':'')+'"><path d="m6 9 6 6 6-6"/></svg>';
-function sGrid(st,en,fn){
+function tgSR(id,k){
+  const r=routines.find(x=>x.id===id);
+  if(!r)return;
+  if(r.log[k]){
+    delete r.log[k];
+  }else{
+    r.log[k]=true;
+    if(k<r.created)r.created=k;
+    playTone(TN.n);
+    if(navigator.vibrate)try{navigator.vibrate(35)}catch(e){}
+    inApp(T("إنجازاتي"),T("تم تسجيل إنجاز الروتين:")+" "+r.name);
+  }
+  saveR();renderR();renderD();renderS();
+}
+function tgST(id,k){
+  const t=tasks.find(x=>x.id===id);
+  if(!t)return;
+  t.hist=t.hist||[];
+  const existingIdx=t.hist.findIndex(h=>h.d===k);
+  const wasFinOnDate=(t.finished&&t.fin===k);
+  const wasDone=existingIdx!==-1||wasFinOnDate;
+  if(wasDone){
+    let rem=0;
+    t.hist=t.hist.filter(h=>{if(h.d===k){rem+=(+h.a||1);return false}return true});
+    if(rem===0)rem=1;
+    t.done=Math.max(0,(+t.done||0)-rem);
+    if(t.fin===k){delete t.fin;t.finished=(t.done>=t.target)}
+    if(t.dk===k){delete t.dk;delete t.dadd}
+  }else{
+    const add=Math.max(1,+t.daily||1);
+    t.hist.push({d:k,a:add,m:1});
+    t.done=(+t.done||0)+add;
+    if(t.done>=t.target){t.finished=true;if(!t.fin)t.fin=k}
+    playTone(TN.n);
+    if(navigator.vibrate)try{navigator.vibrate(35)}catch(e){}
+    inApp(T("إنجازاتي"),T("تم تسجيل إنجاز المهمة:")+" "+t.name);
+  }
+  save();render();renderD();renderS();
+}
+function sGrid(st,en,fn,clickFn){
+  const t=today(),kt=key(t);
   let c='';
   if(sp==="M"){const off=ORDER.indexOf(st.getDay());for(let i=0;i<off;i++)c+='<span></span>'}
   for(const d=new Date(st);d<=en;d.setDate(d.getDate()+1)){
-    const s=fn(d,key(d));
-    c+='<span class="gc'+(s?' gx-'+s:'')+'">'+(sp==="M"?'':'<small>'+DN[d.getDay()]+'</small>')+'<b>'+d.getDate()+'</b></span>';
+    const kd=key(d);
+    const s=fn(d,kd);
+    const canClick=typeof clickFn==="function" && kd<=kt;
+    const clk=canClick?' onclick="'+clickFn(kd)+';event.stopPropagation()"':'';
+    const cls='gc'+(s?' gx-'+s:'')+(canClick?' clickable':'');
+    const tip=canClick?' title="'+T("انقر لتسجيل أو إلغاء الإنجاز")+'"':'';
+    c+='<span class="'+cls+'"'+clk+tip+'>'+(sp==="M"?'':'<small>'+DN[d.getDay()]+'</small>')+'<b>'+d.getDate()+'</b></span>';
   }
   return '<div class="gd">'+c+'</div>';
 }
@@ -964,8 +1012,9 @@ function renderS(){
   const per=routines.map(r=>{
     let sc=0,dn=0;
     for(const d=new Date(st);d<=t;d.setDate(d.getDate()+1)){
-      if(key(d)<r.created||!due(r,d))continue;
-      sc++;if(r.log[key(d)])dn++;
+      const kd=key(d);
+      if((kd<r.created||!due(r,d))&&!r.log[kd])continue;
+      sc++;if(r.log[kd])dn++;
     }
     SC+=sc;DD+=dn;
     return {r:r,sc:sc,dn:dn,p:sc?Math.round(dn/sc*100):null};
@@ -983,7 +1032,7 @@ function renderS(){
   for(const d=new Date(st);d<=en;d.setDate(d.getDate()+1)){
     let sc=0,dn=0;const kd=key(d);
     if(d<=t){
-      routines.forEach(r=>{if(kd<r.created)return;sc++;if(r.log[kd])dn++});
+      routines.forEach(r=>{if(kd<r.created&&!r.log[kd])return;sc++;if(r.log[kd])dn++});
       tasks.forEach(x=>{const tc=(x.hist||[]).some(h=>h.d===kd)||(x.finished&&x.fin===kd);if(tc||!x.finished||(x.fin&&x.fin>=kd)){sc++;if(tc)dn++}});
     }
     const p=sc?Math.round(dn/sc*100):null;
@@ -992,17 +1041,18 @@ function renderS(){
   }
   document.getElementById("sCh").innerHTML='<b>'+T("الالتزام يومًا بعد يوم")+'</b><div style="display:flex;gap:3px;height:80px;margin-top:10px">'+bars+'</div><div style="display:flex;gap:3px;margin-top:4px">'+labs+'</div>';
   const pLbl=sp==="M"?""+T("خلال الشهر")+"":""+T("خلال الأسبوع")+"";
-  const tkRows=touched.map(x=>{
+  const dispTasks=tasks.filter(x=>!x.finished||inR(x.fin)||(x.hist||[]).some(h=>inR(h.d)));
+  const tkRows=dispTasks.map(x=>{
     const ds=new Set((x.hist||[]).map(h=>h.d).filter(inR));if(x.finished&&inR(x.fin))ds.add(x.fin);
     const o=!!openS['T'+x.id];
-    return '<div style="margin-top:12px"><div class="head sx" onclick="tgS(\'T'+x.id+'\')"><span>'+ico(x.icon||"i:pin")+' '+esc(x.name)+'</span><span style="color:var(--mute)">'+ds.size+' '+T("يوم")+' '+chv(o)+'</span></div>'+(o?'<div class="xp"><div class="sub" style="margin-top:8px">'+T("عملت عليها")+' '+ds.size+' '+T("يوم")+' '+pLbl+'</div>'+sGrid(st,en,(d,k)=>ds.has(k)?'d':(k>kt?'':'u'))+'</div>':'')+'</div>';
+    return '<div style="margin-top:12px"><div class="head sx" onclick="tgS(\'T'+x.id+'\')"><span>'+ico(x.icon||"i:pin")+' '+esc(x.name)+'</span><span style="color:var(--mute)">'+ds.size+' '+T("يوم")+' '+chv(o)+'</span></div>'+(o?'<div class="xp"><div class="sub" style="margin-top:8px">'+T("عملت عليها")+' '+ds.size+' '+T("يوم")+' '+pLbl+'</div>'+sGrid(st,en,(d,k)=>{if(ds.has(k))return 'd';return k<=kt?'m':''},(kd)=>'tgST('+x.id+',\''+kd+'\')')+'<div class="sub" style="margin-top:6px;font-size:11.5px;color:var(--mute);display:flex;align-items:center;gap:4px">'+ico("i:check","12px")+' <span>'+T("انقر على أي يوم لتسجيل إنجازه أو تعديله")+'</span></div></div>':'')+'</div>';
   }).join("");
-  document.getElementById("sTk").innerHTML='<b>'+T("المهام")+'</b><div class="meta" style="margin:10px 0 4px"><span>'+T("مهام مغلقة")+'</span><span>'+(closed.length+tasks.reduce((a,x)=>a+(x.cl||[]).filter(inR).length,0))+'</span></div><div class="meta" style="margin:0 0 4px"><span>'+T("مهام عملت عليها")+'</span><span>'+touched.length+'</span></div><div class="meta" style="margin:0"><span>'+T("متوسط نسبة إنجازها")+'</span><span style="color:'+col(tp)+';font-weight:600">'+(tp===null?"—":tp+"%")+'</span></div>'+tkRows;
+  document.getElementById("sTk").innerHTML='<b>'+T("المهام")+'</b>'+(dispTasks.length?('<div class="meta" style="margin:10px 0 4px"><span>'+T("مهام مغلقة")+'</span><span>'+(closed.length+tasks.reduce((a,x)=>a+(x.cl||[]).filter(inR).length,0))+'</span></div><div class="meta" style="margin:0 0 4px"><span>'+T("مهام عملت عليها")+'</span><span>'+touched.length+'</span></div><div class="meta" style="margin:0"><span>'+T("متوسط نسبة إنجازها")+'</span><span style="color:'+col(tp)+';font-weight:600">'+(tp===null?"—":tp+"%")+'</span></div>'+tkRows):'<div class="sub" style="margin-top:8px">'+T("لا توجد مهام بعد.")+'</div>');
   const sorted=per.filter(x=>x.p!==null).sort((a,b)=>b.p-a.p);
   let h='<b>'+cap(T("الروتين"))+'</b>';
   if(!per.length)h+='<div class="sub" style="margin-top:8px">'+T("لا يوجد روتين بعد.")+'</div>';
   else{
-    h+=sorted.concat(per.filter(x=>x.p===null)).map(x=>'<div style="margin-top:12px"><div class="head sx" onclick="tgS(\'R'+x.r.id+'\')"><span>'+ico(x.r.icon||"i:repeat")+' '+esc(x.r.name)+'</span><span style="color:'+col(x.p)+';font-weight:600">'+(x.p===null?"—":x.p+"%")+' '+chv(!!openS['R'+x.r.id])+'</span></div><div class="bar"><div class="fill" data-k="'+x.r.id+'" data-to="'+(x.p||0)+'" style="width:'+(PP["SR"+x.r.id]!==undefined?PP["SR"+x.r.id]:(x.p||0))+'%;background:'+col(PP["SR"+x.r.id]!==undefined?PP["SR"+x.r.id]:x.p)+'"></div></div><div class="sub">'+x.dn+' '+T("من")+' '+x.sc+'</div>'+(openS['R'+x.r.id]?'<div class="xp"><div class="sub" style="margin-top:8px">'+T("التزمت")+' '+x.dn+' '+T("يوم من")+' '+x.sc+' '+pLbl+'</div>'+sGrid(st,en,(d,k)=>{const r=x.r;if(k<r.created||!due(r,d))return 'u';if(r.log[k])return 'd';return k<kt?'m':''})+'</div>':'')+'</div>').join("");
+    h+=sorted.concat(per.filter(x=>x.p===null)).map(x=>'<div style="margin-top:12px"><div class="head sx" onclick="tgS(\'R'+x.r.id+'\')"><span>'+ico(x.r.icon||"i:repeat")+' '+esc(x.r.name)+'</span><span style="color:'+col(x.p)+';font-weight:600">'+(x.p===null?"—":x.p+"%")+' '+chv(!!openS['R'+x.r.id])+'</span></div><div class="bar"><div class="fill" data-k="'+x.r.id+'" data-to="'+(x.p||0)+'" style="width:'+(PP["SR"+x.r.id]!==undefined?PP["SR"+x.r.id]:(x.p||0))+'%;background:'+col(PP["SR"+x.r.id]!==undefined?PP["SR"+x.r.id]:x.p)+'"></div></div><div class="sub">'+x.dn+' '+T("من")+' '+x.sc+'</div>'+(openS['R'+x.r.id]?'<div class="xp"><div class="sub" style="margin-top:8px">'+T("التزمت")+' '+x.dn+' '+T("يوم من")+' '+x.sc+' '+pLbl+'</div>'+sGrid(st,en,(d,k)=>{const r=x.r;if(r.log[k])return 'd';return k<=kt?'m':'u'},(kd)=>'tgSR('+x.r.id+',\''+kd+'\')')+'<div class="sub" style="margin-top:6px;font-size:11.5px;color:var(--mute);display:flex;align-items:center;gap:4px">'+ico("i:check","12px")+' <span>'+T("انقر على أي يوم لتسجيل إنجازه أو تعديله")+'</span></div></div>':'')+'</div>').join("");
     if(sorted.length>1)h+='<div class="sub" style="margin-top:12px">'+T("الأفضل:")+' '+esc(sorted[0].r.name)+' ('+sorted[0].p+'%) • '+T("الأضعف:")+' '+esc(sorted[sorted.length-1].r.name)+' ('+sorted[sorted.length-1].p+'%)</div>';
   }
   document.getElementById("sRt").innerHTML=h;
@@ -1483,7 +1533,7 @@ function renderH(){
   +'</div>'+
   suggestCard;
 }
-const CURRENT_APP_VERSION="1.2.3";
+const CURRENT_APP_VERSION="1.2.4";
 let UPDATE_INFO=null,CHECKING_UPDATE=false;
 function compareVersions(v1,v2){
   const p1=String(v1).split('.').map(n=>parseInt(n,10)||0),p2=String(v2).split('.').map(n=>parseInt(n,10)||0),len=Math.max(p1.length,p2.length);
@@ -1683,7 +1733,11 @@ Object.assign(EN,{
   "شاركنا اقتراحاتك وأفكارك":"Share your suggestions & ideas",
   "رأيك يصنع الفارق في تطوير التطبيق!":"Your feedback makes all the difference!",
   "يسعدني جداً سماع رأيك أو أي أفكار وملاحظات لتطوير التطبيق وجعله أفضل وأكثر فائدة لك:":"I would love to hear your thoughts, ideas, or feedback to make the app even better for you:",
-  "اقتراح لتطبيق إنجازاتي":"Suggestion for Enjazati App"
+  "اقتراح لتطبيق إنجازاتي":"Suggestion for Enjazati App",
+  "انقر على أي يوم لتسجيل إنجازه أو تعديله":"Tap any day to toggle achievement",
+  "انقر لتسجيل أو إلغاء الإنجاز":"Tap to toggle achievement",
+  "تم تسجيل إنجاز الروتين:":"Routine achievement logged:",
+  "تم تسجيل إنجاز المهمة:":"Task achievement logged:"
 });
 setTimeout(()=>checkAppUpdate(false),3500);
 function copyContactMail(btn){
