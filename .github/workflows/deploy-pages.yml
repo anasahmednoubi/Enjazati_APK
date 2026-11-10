@@ -1,0 +1,66 @@
+name: Deploy Web App to GitHub Pages
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Ensure Firebase Config
+        run: |
+          if [ ! -f firebase-applet-config.json ]; then
+            echo "ewogICJwcm9qZWN0SWQiOiAiZW5qYXphdGktZWJjMWEiLAogICJhcHBJZCI6ICIxOjEwNTMxNDk2MTM3OTg6YW5kcm9pZDoxZDY2ZGFmNDMzODUxNDUxMzIzNTI3IiwKICAiYXBpS2V5IjogIkFJemFTeURYR0w5d2pEWjVSczRsVGI4endXaWlDZ1V4LVFWRDktcyIsCiAgImF1dGhEb21haW4iOiAiZW5qYXphdGktZWJjMWEuZmlyZWJhc2VhcHAuY29tIiwKICAiZmlyZXN0b3JlRGF0YWJhc2VJZCI6ICIoZGVmYXVsdCkiLAogICJzdG9yYWdlQnVja2V0IjogImVuamF6YXRpLWViYzFhLmZpcmViYXNlc3RvcmFnZS5hcHAiLAogICJtZXNzYWdpbmdTZW5kZXJJZCI6ICIxMDUzMTQ5NjEzNzk4IiwKICAibWVhc3VyZW1lbnRJZCI6ICIiLAogICJvQXV0aENsaWVudElkIjogIjEwNTMxNDk2MTM3OTgtOGpvYTloMHFmcXFpNTA3ODh1dHZ1czJqcW1mbWJicmMuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLAogICJyZWNhcHRjaGFTaXRlS2V5IjogIiIKfQ==" | base64 -d > firebase-applet-config.json
+          fi
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Web App for GitHub Pages
+        env:
+          BASE_PATH_RAW: ${{ steps.pages.outputs.base_path }}
+        run: |
+          BASE_PATH="${BASE_PATH_RAW%/}/"
+          echo "Building with VITE_BASE_PATH=$BASE_PATH"
+          VITE_BASE_PATH="$BASE_PATH" npm run build
+          cp dist/index.html dist/404.html
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
